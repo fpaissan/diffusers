@@ -24,7 +24,12 @@ from ..utils import BaseOutput, deprecate
 from .attention import BasicTransformerBlock
 from .embeddings import PatchEmbed
 from .modeling_utils import ModelMixin
+import os
+LORA = bool(int(os.environ["LORA"]) == 1) if "LORA" in os.environ else False
 
+if LORA:
+    print("Using lora inside ", __file__)
+    import loralib as lora
 
 @dataclass
 class Transformer2DModelOutput(BaseOutput):
@@ -97,6 +102,8 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
         self.attention_head_dim = attention_head_dim
         inner_dim = num_attention_heads * attention_head_dim
 
+        linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=16)
+
         # 1. Transformer2DModel can process both standard continuous images of shape `(batch_size, num_channels, width, height)` as well as quantized image embeddings of shape `(batch_size, num_image_vectors)`
         # Define whether input is continuous or discrete depending on configuration
         self.is_input_continuous = (in_channels is not None) and (patch_size is None)
@@ -136,7 +143,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
 
             self.norm = torch.nn.GroupNorm(num_groups=norm_num_groups, num_channels=in_channels, eps=1e-6, affine=True)
             if use_linear_projection:
-                self.proj_in = nn.Linear(in_channels, inner_dim)
+                self.proj_in = linear_cls(in_channels, inner_dim)
             else:
                 self.proj_in = nn.Conv2d(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
         elif self.is_input_vectorized:
@@ -192,7 +199,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
         if self.is_input_continuous:
             # TODO: should use out_channels for continuous projections
             if use_linear_projection:
-                self.proj_out = nn.Linear(inner_dim, in_channels)
+                self.proj_out = linear_cls(inner_dim, in_channels)
             else:
                 self.proj_out = nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
         elif self.is_input_vectorized:
