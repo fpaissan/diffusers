@@ -23,6 +23,27 @@ import torch.nn.functional as F
 from .activations import get_activation
 from .attention import AdaGroupNorm
 from .attention_processor import SpatialNorm
+import os
+
+CA_ONLY = bool(int(os.environ["CA_ONLY"]) == 1) if "CA_ONLY" in os.environ else False
+LORA = bool(int(os.environ["LORA"]) == 1) if "LORA" in os.environ else False
+
+R_CONV = 16
+R_LIN = 16
+
+def conv2d(*args, **kwargs):
+    if not CA_ONLY and LORA:
+        return lora.Conv2d(*args, **kwargs, r=R_CONV)
+
+    return nn.Conv2d(*args, **kwargs)
+
+
+if LORA:
+    print("Using lora inside ", __file__)
+    import loralib as lora
+
+    linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=R_LIN)
+
 
 
 class Upsample1D(nn.Module):
@@ -534,7 +555,7 @@ class ResnetBlock2D(nn.Module):
         else:
             self.norm1 = torch.nn.GroupNorm(num_groups=groups, num_channels=in_channels, eps=eps, affine=True)
 
-        self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv1 = conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
 
         if temb_channels is not None:
             if self.time_embedding_norm == "default":
@@ -557,7 +578,7 @@ class ResnetBlock2D(nn.Module):
 
         self.dropout = torch.nn.Dropout(dropout)
         conv_2d_out_channels = conv_2d_out_channels or out_channels
-        self.conv2 = torch.nn.Conv2d(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = conv2d(out_channels, conv_2d_out_channels, kernel_size=3, stride=1, padding=1)
 
         self.nonlinearity = get_activation(non_linearity)
 
@@ -583,7 +604,7 @@ class ResnetBlock2D(nn.Module):
 
         self.conv_shortcut = None
         if self.use_in_shortcut:
-            self.conv_shortcut = torch.nn.Conv2d(
+            self.conv_shortcut = conv2d(
                 in_channels, conv_2d_out_channels, kernel_size=1, stride=1, padding=0, bias=conv_shortcut_bias
             )
 

@@ -25,11 +25,26 @@ from .attention import BasicTransformerBlock
 from .embeddings import PatchEmbed
 from .modeling_utils import ModelMixin
 import os
+CA_ONLY = bool(int(os.environ["CA_ONLY"]) == 1) if "CA_ONLY" in os.environ else False
 LORA = bool(int(os.environ["LORA"]) == 1) if "LORA" in os.environ else False
+
+R_CONV = 16
+R_LIN = 16
+
+def get_conv(*args, **kwargs):
+    if not CA_ONLY and LORA:
+        print("Using LORA convs")
+        return lora.Linear(*args, **kwargs, r=R_CONV)
+
+    return nn.Conv2d(*args, **kwargs)
+
 
 if LORA:
     print("Using lora inside ", __file__)
     import loralib as lora
+
+linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=R_LIN)
+conv2d = get_conv
 
 @dataclass
 class Transformer2DModelOutput(BaseOutput):
@@ -102,8 +117,6 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
         self.attention_head_dim = attention_head_dim
         inner_dim = num_attention_heads * attention_head_dim
 
-        linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=16)
-
         # 1. Transformer2DModel can process both standard continuous images of shape `(batch_size, num_channels, width, height)` as well as quantized image embeddings of shape `(batch_size, num_image_vectors)`
         # Define whether input is continuous or discrete depending on configuration
         self.is_input_continuous = (in_channels is not None) and (patch_size is None)
@@ -145,7 +158,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
             if use_linear_projection:
                 self.proj_in = linear_cls(in_channels, inner_dim)
             else:
-                self.proj_in = nn.Conv2d(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
+                self.proj_in = conv2d(in_channels, inner_dim, kernel_size=1, stride=1, padding=0)
         elif self.is_input_vectorized:
             assert sample_size is not None, "Transformer2DModel over discrete input must provide sample_size"
             assert num_vector_embeds is not None, "Transformer2DModel over discrete input must provide num_embed"
@@ -201,7 +214,7 @@ class Transformer2DModel(ModelMixin, ConfigMixin):
             if use_linear_projection:
                 self.proj_out = linear_cls(inner_dim, in_channels)
             else:
-                self.proj_out = nn.Conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
+                self.proj_out = conv2d(inner_dim, in_channels, kernel_size=1, stride=1, padding=0)
         elif self.is_input_vectorized:
             self.norm_out = nn.LayerNorm(inner_dim)
             self.out = nn.Linear(inner_dim, self.num_vector_embeds - 1)

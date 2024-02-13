@@ -45,6 +45,26 @@ from .unet_2d_blocks import (
     get_down_block,
     get_up_block,
 )
+import os
+
+CA_ONLY = bool(int(os.environ["CA_ONLY"]) == 1) if "CA_ONLY" in os.environ else False
+LORA = bool(int(os.environ["LORA"]) == 1) if "LORA" in os.environ else False
+
+R_CONV = 16
+R_LIN = 16
+
+def conv2d(*args, **kwargs):
+    if not CA_ONLY and LORA:
+        print("using Lora convs")
+        return lora.Conv2d(*args, **kwargs, r=R_CONV)
+
+    return nn.Conv2d(*args, **kwargs)
+
+
+if LORA:
+    import loralib as lora
+
+    linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=R_LIN)
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -262,7 +282,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
 
         # input
         conv_in_padding = (conv_in_kernel - 1) // 2
-        self.conv_in = nn.Conv2d(
+        self.conv_in = conv2d(
             in_channels, block_out_channels[0], kernel_size=conv_in_kernel, padding=conv_in_padding
         )
 
@@ -560,7 +580,7 @@ class UNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditionLoadersMixin)
             self.conv_act = None
 
         conv_out_padding = (conv_out_kernel - 1) // 2
-        self.conv_out = nn.Conv2d(
+        self.conv_out = conv2d(
             block_out_channels[0], out_channels, kernel_size=conv_out_kernel, padding=conv_out_padding
         )
 

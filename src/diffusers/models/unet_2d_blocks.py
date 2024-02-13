@@ -25,7 +25,6 @@ from .dual_transformer_2d import DualTransformer2DModel
 from .resnet import Downsample2D, FirDownsample2D, FirUpsample2D, KDownsample2D, KUpsample2D, ResnetBlock2D, Upsample2D
 from .transformer_2d import Transformer2DModel
 
-
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 

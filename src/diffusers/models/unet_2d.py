@@ -23,6 +23,28 @@ from .embeddings import GaussianFourierProjection, TimestepEmbedding, Timesteps
 from .modeling_utils import ModelMixin
 from .unet_2d_blocks import UNetMidBlock2D, get_down_block, get_up_block
 
+import os
+
+
+CA_ONLY = bool(int(os.environ["CA_ONLY"]) == 1) if "CA_ONLY" in os.environ else False
+LORA = bool(int(os.environ["LORA"]) == 1) if "LORA" in os.environ else False
+
+R_CONV = 16
+R_LIN = 16
+
+def get_conv(*args, **kwargs):
+    if not CA_ONLY and LORA:
+        return lora.Linear(*args, **kwargs, r=R_CONV)
+
+    return nn.Conv2d(*args, **kwargs)
+
+
+if LORA:
+    import loralib as lora
+
+    linear_cls = nn.Linear if not LORA else lambda cin, cout: lora.Linear(cin, cout, r=R_LIN)
+    conv2d = get_conv
+
 
 @dataclass
 class UNet2DOutput(BaseOutput):
@@ -128,7 +150,8 @@ class UNet2DModel(ModelMixin, ConfigMixin):
             )
 
         # input
-        self.conv_in = nn.Conv2d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1))
+        breakpoint()
+        self.conv_in = conv2d(in_channels, block_out_channels[0], kernel_size=3, padding=(1, 1))
 
         # time
         if time_embedding_type == "fourier":
@@ -223,7 +246,7 @@ class UNet2DModel(ModelMixin, ConfigMixin):
         num_groups_out = norm_num_groups if norm_num_groups is not None else min(block_out_channels[0] // 4, 32)
         self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=num_groups_out, eps=norm_eps)
         self.conv_act = nn.SiLU()
-        self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
+        self.conv_out = conv2d(block_out_channels[0], out_channels, kernel_size=3, padding=1)
 
     def forward(
         self,
